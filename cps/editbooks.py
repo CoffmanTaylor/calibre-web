@@ -24,6 +24,7 @@ import os
 from datetime import datetime, timezone
 import json
 from shutil import copyfile
+import tempfile
 
 from markupsafe import escape, Markup  # dependency of flask
 from functools import wraps
@@ -36,6 +37,8 @@ from .cw_login import current_user, login_required
 from sqlalchemy.exc import OperationalError, IntegrityError, InterfaceError
 from sqlalchemy.orm.exc import StaleDataError
 from sqlalchemy.sql.expression import func
+from fanficfare.cli import main as download_book
+from werkzeug.datastructures import FileStorage
 
 from . import constants, logger, isoLanguages, gdriveutils, uploader, helper, kobo_sync_status
 from .clean_html import clean_string
@@ -109,66 +112,86 @@ def upload():
         return do_edit_book(book_id, request.files.getlist("btn-upload-format"))
     elif len(request.files.getlist("btn-upload")):
         for requested_file in request.files.getlist("btn-upload"):
-            try:
-                modify_date = False
-                # create the function for sorting...
-                calibre_db.create_functions(config)
-                meta, error = file_handling_on_upload(requested_file)
-                if error:
-                    return error
-
-                db_book, input_authors, title_dir = create_book_on_upload(modify_date, meta)
-
-                # Comments need book id therefore only possible after flush
-                modify_date |= edit_book_comments(Markup(meta.description).unescape(), db_book)
-
-                book_id = db_book.id
-                title = db_book.title
-                if config.config_use_google_drive:
-                    helper.upload_new_file_gdrive(book_id,
-                                                  input_authors[0],
-                                                  title,
-                                                  title_dir,
-                                                  meta.file_path,
-                                                  meta.extension.lower())
-                    for file_format in db_book.data:
-                        file_format.name = (helper.get_valid_filename(title, chars=42) + ' - '
-                                            + helper.get_valid_filename(input_authors[0], chars=42))
-                else:
-                    error = helper.update_dir_structure(book_id,
-                                                        config.get_book_path(),
-                                                        input_authors[0],
-                                                        meta.file_path,
-                                                        title_dir + meta.extension.lower())
-                move_coverfile(meta, db_book)
-                if modify_date:
-                    calibre_db.set_metadata_dirty(book_id)
-                # save data to database, reread data
-                calibre_db.session.commit()
-
-                if config.config_use_google_drive:
-                    gdriveutils.updateGdriveCalibreFromLocal()
-                if error:
-                    flash(error, category="error")
-                link = '<a href="{}">{}</a>'.format(url_for('web.show_book', book_id=book_id), escape(title))
-                upload_text = N_("File %(file)s uploaded", file=link)
-                WorkerThread.add(current_user.name, TaskUpload(upload_text, escape(title)))
-                helper.add_book_to_thumbnail_cache(book_id)
-
-                if len(request.files.getlist("btn-upload")) < 2:
-                    if current_user.role_edit() or current_user.role_admin():
-                        resp = {"location": url_for('edit-book.show_edit_book', book_id=book_id)}
-                        return Response(json.dumps(resp), mimetype='application/json')
-                    else:
-                        resp = {"location": url_for('web.show_book', book_id=book_id)}
-                        return Response(json.dumps(resp), mimetype='application/json')
-            except (OperationalError, IntegrityError, StaleDataError) as e:
-                calibre_db.session.rollback()
-                log.error_or_exception("Database error: {}".format(e))
-                flash(_("Oops! Database Error: %(error)s.", error=e.orig if hasattr(e, "orig") else e),
-                      category="error")
+            res = _upload(requested_file)
+            if res is not None:
+                return res
         return Response(json.dumps({"location": url_for("web.index")}), mimetype='application/json')
     abort(404)
+
+@editbook.route("/import", methods=["GET"])
+@login_required_if_no_ano
+@upload_required
+def import_book():
+    if (url := request.args.get("url", None)) is None:
+        abort(404)
+        return
+    
+    with tempfile.TemporaryDirectory() as dir:
+        download_book(["--non-interactive", "-o", f"output_filename={dir}/book.epub", url])
+        res = _upload(FileStorage(open(f"{dir}/book.epub", "rb"), "book.epub"))
+        if res is not None:
+            return res
+
+
+def _upload(requested_file):
+    try:
+        modify_date = False
+        # create the function for sorting...
+        calibre_db.create_functions(config)
+        meta, error = file_handling_on_upload(requested_file)
+        if error:
+            return error
+
+        db_book, input_authors, title_dir = create_book_on_upload(modify_date, meta)
+
+        # Comments need book id therefore only possible after flush
+        modify_date |= edit_book_comments(Markup(meta.description).unescape(), db_book)
+
+        book_id = db_book.id
+        title = db_book.title
+        if config.config_use_google_drive:
+            helper.upload_new_file_gdrive(book_id,
+                                            input_authors[0],
+                                            title,
+                                            title_dir,
+                                            meta.file_path,
+                                            meta.extension.lower())
+            for file_format in db_book.data:
+                file_format.name = (helper.get_valid_filename(title, chars=42) + ' - '
+                                    + helper.get_valid_filename(input_authors[0], chars=42))
+        else:
+            error = helper.update_dir_structure(book_id,
+                                                config.get_book_path(),
+                                                input_authors[0],
+                                                meta.file_path,
+                                                title_dir + meta.extension.lower())
+        move_coverfile(meta, db_book)
+        if modify_date:
+            calibre_db.set_metadata_dirty(book_id)
+        # save data to database, reread data
+        calibre_db.session.commit()
+
+        if config.config_use_google_drive:
+            gdriveutils.updateGdriveCalibreFromLocal()
+        if error:
+            flash(error, category="error")
+        link = '<a href="{}">{}</a>'.format(url_for('web.show_book', book_id=book_id), escape(title))
+        upload_text = N_("File %(file)s uploaded", file=link)
+        WorkerThread.add(current_user.name, TaskUpload(upload_text, escape(title)))
+        helper.add_book_to_thumbnail_cache(book_id)
+
+        if len(request.files.getlist("btn-upload")) < 2:
+            if current_user.role_edit() or current_user.role_admin():
+                resp = {"location": url_for('edit-book.show_edit_book', book_id=book_id)}
+                return Response(json.dumps(resp), mimetype='application/json')
+            else:
+                resp = {"location": url_for('web.show_book', book_id=book_id)}
+                return Response(json.dumps(resp), mimetype='application/json')
+    except (OperationalError, IntegrityError, StaleDataError) as e:
+        calibre_db.session.rollback()
+        log.error_or_exception("Database error: {}".format(e))
+        flash(_("Oops! Database Error: %(error)s.", error=e.orig if hasattr(e, "orig") else e),
+                category="error")
 
 
 @editbook.route("/admin/book/convert/<int:book_id>", methods=['POST'])
