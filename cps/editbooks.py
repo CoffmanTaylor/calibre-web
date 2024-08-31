@@ -124,10 +124,9 @@ def upload():
 def import_book():
     if (url := request.args.get("url", None)) is None:
         abort(404)
-        return
     
     with tempfile.TemporaryDirectory() as dir:
-        download_book(["--non-interactive", "-o", f"output_filename={dir}/book.epub", url])
+        download_book(["--non-interactive", "-o", f"output_filename={dir}/book.epub", "-o", "make_firstimage_cover=true", "-o", "include_images=true", url])
         res = _upload(FileStorage(open(f"{dir}/book.epub", "rb"), "book.epub"))
         if res is not None:
             return res
