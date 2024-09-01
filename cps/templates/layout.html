@@ -87,7 +87,7 @@
               {% endif %}
               {% if current_user.role_upload() and g.allow_upload %}
                   <li>
-                    <form class="navbar-form navbar-form" role="search" action="{{url_for('edit-book.import_book')}}" method="GET">
+                    <form id="form-upload" class="navbar-form navbar-form" action="{{url_for('edit-book.import_book')}}" method="GET" data-title="{{_('Importing...')}}" data-footer="{{_('Close')}}" data-failed="{{_('Error')}}" data-message="{{_('Processing, please wait...')}}">
                       <div class="form-group input-group input-group-sm">
                         <label for="query" class="sr-only">{{_('Import URL')}}</label>
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
