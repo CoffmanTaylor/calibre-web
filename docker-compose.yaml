@@ -1,0 +1,11 @@
+services:
+  calibre-web:
+    build: .
+    environment:
+      - FLASK_DEBUG=1
+    ports:
+      - 8083:8083
+    volumes:
+      - ${PWD}/test-library/:/mnt/library/
+      - ${PWD}/app.db:/mnt/config/app.db
+    
