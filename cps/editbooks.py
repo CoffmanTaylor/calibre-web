@@ -126,7 +126,7 @@ def import_book():
         abort(404)
     
     with tempfile.TemporaryDirectory() as dir:
-        download_book(["--non-interactive", "-o", f"output_filename={dir}/book.epub", "-o", "make_firstimage_cover=true", "-o", "include_images=true", url])
+        download_book(["--non-interactive", "-o", f"output_filename={dir}/book.epub", "-c", "/mnt/config/personal.ini", url])
         res = _upload(FileStorage(open(f"{dir}/book.epub", "rb"), "book.epub"))
         if res is not None:
             return res

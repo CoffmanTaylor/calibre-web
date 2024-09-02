@@ -1,8 +1,9 @@
 services:
   calibre-web:
     build: .
+    restart: unless-stopped
     environment:
-      - FLASK_DEBUG=1
+      - FLASK_DEBUG=${FLASK_DEBUG:-0}
     ports:
       - 8083:8083
     volumes:
