@@ -21,7 +21,13 @@ RUN apt update && \
     apt install -y \
         gcc \
         imagemagick \
-        libmagic-dev
+        libmagic-dev \
+        xdg-utils \
+        wget \
+        xz-utils \
+        libopengl0 \
+        libxcb-cursor0 \
+        libxkbcommon-x11-0
 
 ADD ./requirements.txt .
 ADD ./optional-requirements.txt .
@@ -47,7 +53,7 @@ RUN sh /tmp/calibre-install.sh isolated=y
 FROM deps AS prod
 
 # Get the binary deps
-ADD https://github.com/pgaskin/kepubify/releases/latest/download/kepubify-linux-64bit /opt/kepubify/kepubify
+ADD --chown=1000:1000 --chmod=775 https://github.com/pgaskin/kepubify/releases/latest/download/kepubify-linux-64bit /opt/kepubify/kepubify
 COPY --from=calibre /opt/calibre /opt/calibre
 
 ADD . .

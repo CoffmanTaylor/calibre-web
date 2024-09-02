@@ -6,6 +6,7 @@ services:
     ports:
       - 8083:8083
     volumes:
-      - ${PWD}/test-library/:/mnt/library/
-      - ${PWD}/app.db:/mnt/config/app.db
-    
+      - ${PWD}/volumes/library/:/mnt/library/
+      - ${PWD}/volumes/configs/:/mnt/config/
+volumes:
+  library-configs: {}
